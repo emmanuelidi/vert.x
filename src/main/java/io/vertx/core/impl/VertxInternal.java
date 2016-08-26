@@ -90,4 +90,5 @@ public interface VertxInternal extends Vertx {
 
   ClusterManager getClusterManager();
 
+  Runnable interceptScheduledWork(final ContextImpl context, final Runnable task);
 }

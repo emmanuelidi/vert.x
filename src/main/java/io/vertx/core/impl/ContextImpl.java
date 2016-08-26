@@ -288,7 +288,7 @@ public abstract class ContextImpl implements ContextInternal {
                                    boolean ordered, Handler<AsyncResult<T>> resultHandler) {
     try {
       Executor exec = internal ? orderedInternalPoolExec : (ordered ? workerExec : owner.getWorkerPool());
-      exec.execute(() -> {
+      Runnable task = () -> {
         Future<T> res = Future.future();
         try {
           if (blockingCodeHandler != null) {
@@ -304,7 +304,12 @@ public abstract class ContextImpl implements ContextInternal {
         if (resultHandler != null) {
           runOnContext(v -> res.setHandler(resultHandler));
         }
-      });
+      };
+      if (!internal) {
+        task = owner.interceptScheduledWork(this, task);
+      }
+      exec.execute(task);
+
     } catch (RejectedExecutionException ignore) {
       // Pool is already shut down
     }

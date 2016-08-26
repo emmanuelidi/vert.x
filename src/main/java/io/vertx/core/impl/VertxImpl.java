@@ -65,6 +65,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
 
 /**
  * @author <a href="http://tfox.org">Tim Fox</a>
@@ -83,6 +84,7 @@ public class VertxImpl implements VertxInternal, MetricsProvider {
     System.setProperty("io.netty.noJdkZlibDecoder", "false");
   }
 
+  private final List<BiFunction<Context, Runnable, Runnable>> schedulerInteceptors = new CopyOnWriteArrayList<>();
   private final FileSystem fileSystem = getFileSystem();
   private final SharedData sharedData;
   private final VertxMetrics metrics;
@@ -657,6 +659,25 @@ public class VertxImpl implements VertxInternal, MetricsProvider {
     return fileResolver.resolveFile(fileName);
   }
 
+  @Override
+  public Vertx addSchedulerInterceptor(BiFunction<Context, Runnable, Runnable> interceptor) {
+    schedulerInteceptors.add(interceptor);
+    return this;
+  }
+
+  @Override
+  public Vertx removeSchedulerInterceptor(BiFunction<Context, Runnable, Runnable> interceptor) {
+    schedulerInteceptors.remove(interceptor);
+    return this;
+  }
+
+  @Override
+  public Runnable interceptScheduledWork(final ContextImpl context, final Runnable task) {
+    return schedulerInteceptors.stream()
+        .reduce((c, t) -> t, (a, b) -> (c, t) -> b.apply(c, a.apply(c, t)))
+        .apply(context, task);
+  }
+
   @SuppressWarnings("unchecked")
   private void deleteCacheDirAndShutdown(Handler<AsyncResult<Void>> completionHandler) {
     fileResolver.close(res -> {
@@ -724,7 +745,7 @@ public class VertxImpl implements VertxInternal, MetricsProvider {
       this.handler = runnable;
       this.periodic = periodic;
       EventLoop el = context.nettyEventLoop();
-      Runnable toRun = () -> context.runOnContext(this);
+      Runnable toRun = interceptScheduledWork(context, () -> context.runOnContext(this));
       if (periodic) {
         future = el.scheduleAtFixedRate(toRun, delay, delay, TimeUnit.MILLISECONDS);
       } else {
